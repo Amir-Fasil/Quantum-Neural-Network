@@ -1,0 +1,4 @@
+pennylane
+torch
+scikit-learn
+matplotlib
