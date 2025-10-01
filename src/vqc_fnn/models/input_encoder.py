@@ -1,5 +1,6 @@
 import pennylane as qml
 import numpy as np
+import matplotlib.pyplot as plt
 
 
 class InputEncoder:
@@ -117,7 +118,7 @@ class InputEncoder:
 
 
 if __name__ == "__main__":
-    import matplotlib.pyplot as plt
+   
 
     # Input and device
     input_data = np.asarray([0, 0, 1])
@@ -125,33 +126,33 @@ if __name__ == "__main__":
     dev = qml.device("default.qubit", wires=3)
 
     # Case 1: Initialization (angle embedding)
-    # circuit1 = encoder.encode_input(
-    #     device=dev,
-    #     embedding_type="angle",
-    #     gate_type="Y",
-    #     with_padding=False,
-    #     return_state=True
-    # )
-    # state = circuit1()
-    # print("Initialization State:", state)
-
-    # Case 2: Initialization + operations
-    ops = [
-        qml.Hadamard(wires=0),
-        qml.CNOT(wires=[0, 1]),
-        qml.CNOT(wires=[1, 2])
-    ]
-    circuit2 = encoder.encode_input(
+    circuit1 = encoder.encode_input(
         device=dev,
         embedding_type="angle",
         gate_type="Y",
         with_padding=False,
-        operations_list=ops,
-        return_state=False
+        return_state=True
     )
-    result = circuit2()
-    print("Expectation value <Z0>:", result)
+    state = circuit1()
+    print("Initialization State:", state)
+
+    # Case 2: Initialization + operations
+    # ops = [
+    #     qml.Hadamard(wires=0),
+    #     qml.CNOT(wires=[0, 1]),
+    #     qml.CNOT(wires=[1, 2])
+    # ]
+    # circuit2 = encoder.encode_input(
+    #     device=dev,
+    #     embedding_type="angle",
+    #     gate_type="Y",
+    #     with_padding=False,
+    #     operations_list=ops,
+    #     return_state=False
+    # )
+    # result = circuit2()
+    # print("Expectation value <Z0>:", result)
 
     # Draw circuit
-    fig, ax = qml.draw_mpl(circuit2)()
+    # fig, ax = qml.draw_mpl(circuit2)()
     plt.show()
