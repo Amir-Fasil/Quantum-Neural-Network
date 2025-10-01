@@ -45,7 +45,7 @@ class InputEncoder:
         self,
         gate_type: str = 'Y',
         embedding_type: str = 'angle',
-        operation_type: str = 'initialization',
+        mode: str = 'embedding_only',
         with_padding: bool = False,
         device: qml.device = None,
         interface: str = 'autograd',
@@ -58,17 +58,25 @@ class InputEncoder:
         Args:
             gate_type: Rotation gate for angle embedding ('X','Y','Z')
             embedding_type: 'angle' or 'amplitude'
-            operation_type: 'initialization' or 'operations'
+            mode: 'embedding_only' (just initialization), 'operations_only' (just ops),
+                  or 'full' (embedding + ops)
             with_padding: pad to power of 2
             device: optional pre-existing device to reuse
             interface: ML interface for QNode ('autograd','torch','jax','tf')
-            operations_list: list of quantum ops to apply after embedding
+            operations_list: list of quantum ops to apply (required for 'full', optional for 'operations_only')
             return_state: if True returns statevector, else expval <Z0>
 
         Returns:
             qml.QNode: quantum circuit for encoding
         """
-        # Validate rotation gate
+        # Validate inputs
+        valid_modes = ['embedding_only', 'operations_only', 'full']
+        if mode not in valid_modes:
+            raise ValueError(f"mode must be one of {valid_modes}")
+        if mode == 'full' and operations_list is None:
+            raise ValueError("operations_list is required for mode 'full'")
+        if mode == 'operations_only' and operations_list is None:
+            operations_list = []  # Default to empty for operations_only
         valid_rotations = ['X', 'Y', 'Z']
         if embedding_type == "angle" and gate_type not in valid_rotations:
             raise ValueError(f"gate_type must be one of {valid_rotations}")
@@ -86,8 +94,8 @@ class InputEncoder:
 
         @qml.qnode(self.device, interface=interface, diff_method='parameter-shift')
         def circuit():
-            # Initialization embedding
-            if operation_type == "initialization":
+            # Apply embedding if needed
+            if mode in ['embedding_only', 'full']:
                 if embedding_type == "angle":
                     self.prepare_state(embedding_type)
                     qml.AngleEmbedding(
@@ -103,8 +111,8 @@ class InputEncoder:
                         pad_with=0.0
                     )
 
-            # Apply additional operations on top of embedding
-            if operations_list:
+            # Apply additional operations if needed
+            if mode in ['operations_only', 'full'] and operations_list:
                 for op in operations_list:
                     qml.apply(op)
 
@@ -118,41 +126,55 @@ class InputEncoder:
 
 
 if __name__ == "__main__":
-   
-
     # Input and device
     input_data = np.asarray([0, 0, 1])
     encoder = InputEncoder(input_data)
     dev = qml.device("default.qubit", wires=3)
 
-    # Case 1: Initialization (angle embedding)
+    # Define example operations
+    ops = [
+        qml.Hadamard(wires=0),
+        qml.CNOT(wires=[0, 1]),
+        qml.CNOT(wires=[1, 2])
+    ]
+
+    # Case 1: Embedding only (initialization)
     circuit1 = encoder.encode_input(
         device=dev,
         embedding_type="angle",
         gate_type="Y",
+        mode="embedding_only",
         with_padding=False,
         return_state=True
     )
     state = circuit1()
-    print("Initialization State:", state)
+    print("Embedding Only State:", state)
+    # fig, ax = qml.draw_mpl(circuit1)()
+    # plt.show()
 
-    # Case 2: Initialization + operations
-    # ops = [
-    #     qml.Hadamard(wires=0),
-    #     qml.CNOT(wires=[0, 1]),
-    #     qml.CNOT(wires=[1, 2])
-    # ]
-    # circuit2 = encoder.encode_input(
-    #     device=dev,
-    #     embedding_type="angle",
-    #     gate_type="Y",
-    #     with_padding=False,
-    #     operations_list=ops,
-    #     return_state=False
-    # )
-    # result = circuit2()
-    # print("Expectation value <Z0>:", result)
-
-    # Draw circuit
+    # Case 2: Operations only (no embedding)
+    circuit2 = encoder.encode_input(
+        device=dev,
+        mode="operations_only",
+        operations_list=ops,
+        return_state=True
+    )
+    state_ops = circuit2()
+    print("Operations Only State:", state_ops)
     # fig, ax = qml.draw_mpl(circuit2)()
-    plt.show()
+    # plt.show()
+
+    # Case 3: Full (embedding + operations)
+    circuit3 = encoder.encode_input(
+        device=dev,
+        embedding_type="angle",
+        gate_type="Y",
+        mode="full",
+        with_padding=False,
+        operations_list=ops,
+        return_state=False
+    )
+    result = circuit3()
+    print("Full Expectation value <Z0>:", result)
+    # fig, ax = qml.draw_mpl(circuit3)()
+    # plt.show()
