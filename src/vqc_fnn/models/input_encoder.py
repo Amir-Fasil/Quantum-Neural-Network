@@ -41,140 +41,114 @@ class InputEncoder:
             for i in range(self.n_qubits):
                 qml.Hadamard(wires=i)
 
-    def encode_input(
-        self,
-        gate_type: str = 'Y',
-        embedding_type: str = 'angle',
-        mode: str = 'embedding_only',
-        with_padding: bool = False,
-        device: qml.device = None,
-        interface: str = 'autograd',
-        operations_list=None,
-        return_state: bool = True
-    ):
+
+    #Circuit Modules
+    def embedding_function(self,embedding_type:str = "angle",gate_type:str = "Y"):
         """
-        Encode input into quantum state and optionally apply operations.
-
-        Args:
-            gate_type: Rotation gate for angle embedding ('X','Y','Z')
-            embedding_type: 'angle' or 'amplitude'
-            mode: 'embedding_only' (just initialization), 'operations_only' (just ops),
-                  or 'full' (embedding + ops)
-            with_padding: pad to power of 2
-            device: optional pre-existing device to reuse
-            interface: ML interface for QNode ('autograd','torch','jax','tf')
-            operations_list: list of quantum ops to apply (required for 'full', optional for 'operations_only')
-            return_state: if True returns statevector, else expval <Z0>
-
-        Returns:
-            qml.QNode: quantum circuit for encoding
+        Returns a function that applies only the embedding.
+        Can be inserted into another QNode
         """
-        # Validate inputs
-        valid_modes = ['embedding_only', 'operations_only', 'full']
-        if mode not in valid_modes:
-            raise ValueError(f"mode must be one of {valid_modes}")
-        if mode == 'full' and operations_list is None:
-            raise ValueError("operations_list is required for mode 'full'")
-        if mode == 'operations_only' and operations_list is None:
-            operations_list = []  # Default to empty for operations_only
-        valid_rotations = ['X', 'Y', 'Z']
-        if embedding_type == "angle" and gate_type not in valid_rotations:
-            raise ValueError(f"gate_type must be one of {valid_rotations}")
+        def func():
+            if embedding_type == "angle":
+                self.prepare_state(embedding_type)
+                qml.AngleEmbedding(
+                    self.classic_input, 
+                    wires=range(self.n_qubits), 
+                    rotation=gate_type)
+            elif embedding_type == "amplitude":
+                self.add_padding()
+                qml.AmplitudeEmbedding(
+                    self.classic_input,
+                    wires=range(self.n_qubits),
+                    normalize=True,
+                    pad_with=0.0
+                )
+            else:
+                raise ValueError("embedding_type must be 'angle' or 'amplitude' ")
 
-        # Handle padding
-        if embedding_type == "amplitude" or with_padding:
-            self.add_padding()
-        else:
-            self.n_qubits = len(self.classic_input)
-
-        # Device initialization
-        self.device = device if device is not None else qml.device(
-            self.device_type, wires=self.n_qubits
-        )
-
-        @qml.qnode(self.device, interface=interface, diff_method='parameter-shift')
-        def circuit():
-            # Apply embedding if needed
-            if mode in ['embedding_only', 'full']:
-                if embedding_type == "angle":
-                    self.prepare_state(embedding_type)
-                    qml.AngleEmbedding(
-                        self.classic_input,
-                        wires=range(self.n_qubits),
-                        rotation=gate_type
-                    )
-                elif embedding_type == "amplitude":
-                    qml.AmplitudeEmbedding(
-                        self.classic_input,
-                        wires=range(self.n_qubits),
-                        normalize=True,
-                        pad_with=0.0
-                    )
-
-            # Apply additional operations if needed
-            if mode in ['operations_only', 'full'] and operations_list:
-                for op in operations_list:
+        return func
+    def operations_function(self, operation_list=None):
+        """
+        Returns a function that applies only the given operations.
+        Can be inserted into another QNode
+        """
+        def func():
+            if operation_list:
+                for op in operation_list:
                     qml.apply(op)
 
-            # Measurement
-            if return_state:
-                return qml.state()
-            else:
-                return qml.expval(qml.PauliZ(0))
+        return func
+    def build_full_circuit(
+            self,
+            embedding_type:str = "angle",
+            gate_type:str = "Y",
+            operation_list=None,
+            device:qml.device=None,
+            return_state: bool=True,
+            interface: str="autograd" 
 
+    ):
+        """
+        Build a complete QNode that includes embedding + operation + measurement
+        """
+        self.device=device if device is not None else qml.device(self.device_type, wires = self.n_qubits)
+        embedding= self.embedding_function(embedding_type,gate_type)
+        ops=self.operations_function(operation_list)
+
+        @qml.qnode(self.device, interface = interface, diff_method = "parameter-shift")
+        def circuit():
+            embedding()
+            ops()
+            return qml.state() if return_state else qml.expval(qml.PauliZ(0))
         return circuit
-
+    
+# Example usage
 
 if __name__ == "__main__":
-    # Input and device
-    input_data = np.asarray([0, 0, 1])
+    input_data = np.asarray([0,0,1])
     encoder = InputEncoder(input_data)
     dev = qml.device("default.qubit", wires=3)
-
-    # Define example operations
-    ops = [
+    ops=[
         qml.Hadamard(wires=0),
-        qml.CNOT(wires=[0, 1]),
-        qml.CNOT(wires=[1, 2])
+        qml.CNOT(wires=[0,1]),
+        qml.CNOT(wires=[1,2])
     ]
 
-    # Case 1: Embedding only (initialization)
-    circuit1 = encoder.encode_input(
-        device=dev,
-        embedding_type="angle",
-        gate_type="Y",
-        mode="embedding_only",
-        with_padding=False,
-        return_state=True
-    )
-    state = circuit1()
-    print("Embedding Only State:", state)
-    # fig, ax = qml.draw_mpl(circuit1)()
-    # plt.show()
+    #1 embedding only(standalone QNode)
+    embedding_fn=encoder.embedding_function("angle","Y")
 
-    # Case 2: Operations only (no embedding)
-    circuit2 = encoder.encode_input(
-        device=dev,
-        mode="operations_only",
-        operations_list=ops,
-        return_state=True
-    )
-    state_ops = circuit2()
-    print("Operations Only State:", state_ops)
-    # fig, ax = qml.draw_mpl(circuit2)()
-    # plt.show()
+    @qml.qnode(dev)
+    def embedding_only():
+        embedding_fn()
+        return qml.state()
+    print("Embedding only:", embedding_only())
 
-    # Case 3: Full (embedding + operations)
-    circuit3 = encoder.encode_input(
-        device=dev,
-        embedding_type="angle",
-        gate_type="Y",
-        mode="full",
-        with_padding=False,
-        operations_list=ops,
-        return_state=False
+    #2 operation only(standalone QNode)
+    ops_fn=encoder.operations_function(ops)
+
+    @qml.qnode(dev)
+    def ops_only():
+        ops_fn()
+        return qml.state()
+    print("Operation only:", ops_only())
+
+    #3 full circuit(embedding + ops via build_full_circuit)
+    full_circuit = encoder.build_full_circuit(
+        embedding_type= "angle",
+        gate_type= "Y",
+        operation_list= ops,
+        device= dev,
+        return_state= False
     )
-    result = circuit3()
-    print("Full Expectation value <Z0>:", result)
-    # fig, ax = qml.draw_mpl(circuit3)()
-    # plt.show()
+    print("Full circuit <Z0>:", full_circuit())
+
+    #4 custom composition(embedding from encoder + new operation defined here)
+    @qml.qnode(dev)
+    def custom_circuit():
+        embedding_fn()
+        qml.RX(np.pi/4, wires=0)
+
+        return qml.expval(qml.PauliZ(0))
+    print("Custom composition <Z0>:", custom_circuit())
+
+
