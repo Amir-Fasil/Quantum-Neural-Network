@@ -41,30 +41,43 @@ class InputEncoder:
                 qml.Hadamard(wires=i)
 
 
-    #Circuit Modules
-    def embedding_function(self,embedding_type:str = "angle",gate_type:str = "Y"):
+    def embedding_template(
+        self,
+        embedding_type: str = "angle",
+        gate_type: str = "Y"
+    ) -> Callable[[ArrayLike], None]:
         """
-        Returns a function that applies only the embedding.
-        Can be inserted into another QNode
+        Returns a function that takes 'classic_input' and performs the embedding.
+        This function defines the quantum operations within the QNode.
         """
-        def func():
+
+        def func(classic_input: ArrayLike):
+            classic_input_arr = np.asarray(classic_input, dtype=np.float64).flatten()
+            
+           
             if embedding_type == "angle":
-                self.prepare_state(embedding_type)
+                n_qubits = len(classic_input_arr)
+
                 qml.AngleEmbedding(
-                    self.classic_input, 
-                    wires=range(self.n_qubits), 
-                    rotation=gate_type)
+                    classic_input_arr,
+                    wires=range(n_qubits),
+                    rotation=gate_type
+                )
+            
+            
             elif embedding_type == "amplitude":
-                self.add_padding()
+                
+                padded_input, n_qubits = InputEncoder.add_padding(classic_input_arr)
+
                 qml.AmplitudeEmbedding(
-                    self.classic_input,
-                    wires=range(self.n_qubits),
+                    padded_input,
+                    wires=range(n_qubits),
                     normalize=True,
                     pad_with=0.0
                 )
             else:
-                raise ValueError("embedding_type must be 'angle' or 'amplitude' ")
-
+                raise ValueError(f"Unknown embedding_type: {embedding_type}")
+        
         return func
     def operations_function(self, operation_list=None):
         """
