@@ -16,25 +16,20 @@ class InputEncoder:
     - QNode is defined once and accepts data as an argument for efficient batching.
     """
     def __init__(self, device_type: str = "default.qubit"):
-        
+
         self.device_type = device_type
         self.random_generator = np.random.default_rng()
 
 
-    def add_padding(self):
-        """
-        Pad input to the next power of 2 and update n_qubits if needed
-        """
-        length = len(self.classic_input)
-        next_power_of_2 = 2 ** np.ceil(np.log2(max(length, 1))).astype(int)
-        if next_power_of_2 > self.n_qubits:
-            self.n_qubits = next_power_of_2
-
-        self.classic_input = np.pad(
-            self.classic_input,
-            (0, self.n_qubits - length),
-            'constant'
-        )
+    @staticmethod
+    def add_padding(vector: np.ndarray) -> Tuple[np.ndarray, int]:
+        """Pads a vector to the next power of 2 for amplitude embedding."""
+        vector = np.asarray(vector, dtype=np.float64).flatten()
+        length = len(vector)
+  
+        next_pow2 = 2 ** int(np.ceil(np.log2(max(length, 1))))
+        padded_vector = np.pad(vector, (0, next_pow2 - length), 'constant')
+        return padded_vector, next_pow2
 
     def prepare_state(self, embedding_type: str):
         """
