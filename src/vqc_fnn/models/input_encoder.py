@@ -1,21 +1,25 @@
 import pennylane as qml
 import numpy as np
 import matplotlib.pyplot as plt
+from typing import Callable, List, Optional, Union, Tuple
 
-
+ArrayLike = Union[np.ndarray, List[float]]
 class InputEncoder:
-    def __init__(self, classic_input: np.ndarray, device_type: str = 'default.qubit'):
-        """
-        Initialize encoder with classical input.
-        Args:
-            classic_input: Input array
-            device_type: PennyLane device type
-        """
-        self.classic_input = np.asarray(classic_input, dtype=np.float64)
-        self.n_qubits = len(self.classic_input)
+    """
+    Stateless, modular quantum input encoder for feedforward VQC networks.
+
+    Supports:
+    - AngleEmbedding (rotation gates)
+    - AmplitudeEmbedding (normalized, padded)
+    
+    IMPORTANT:
+    - QNode is defined once and accepts data as an argument for efficient batching.
+    """
+    def __init__(self, device_type: str = "default.qubit"):
+        
         self.device_type = device_type
-        self.device = None
         self.random_generator = np.random.default_rng()
+
 
     def add_padding(self):
         """
