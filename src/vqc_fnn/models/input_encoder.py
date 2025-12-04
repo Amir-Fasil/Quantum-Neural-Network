@@ -79,17 +79,20 @@ class InputEncoder:
                 raise ValueError(f"Unknown embedding_type: {embedding_type}")
         
         return func
-    def operations_function(self, operation_list=None):
-        """
-        Returns a function that applies only the given operations.
-        Can be inserted into another QNode
-        """
+    
+    
+    @staticmethod
+    def operations_function(operation_list: Optional[List[Union[qml.operation.Operation, Callable]]] = None) -> Callable[[], None]:
+        """Returns a function that applies a list of pre-defined operations."""
         def func():
             if operation_list:
                 for op in operation_list:
-                    qml.apply(op)
-
+                    if callable(op):
+                        op()
+                    else:
+                        qml.apply(op)
         return func
+
     def build_full_circuit(
             self,
             embedding_type:str = "angle",
