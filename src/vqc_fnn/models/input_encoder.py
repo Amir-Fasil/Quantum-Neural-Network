@@ -137,53 +137,82 @@ class InputEncoder:
             return qml.state() if return_state else qml.expval(observable)
 
         return circuit
-# Example usage
+    
+    def encode_batch(
+        self,
+        batch: ArrayLike,
+        embedding_type: str = "angle",
+        gate_type: str = "Y",
+        operation_list: Optional[List[Union[qml.operation.Operation, Callable]]] = None,
+        device: Optional[qml.device] = None,
+        return_state: bool = True,
+        observable: Optional[qml.operation.Observable] = None
+    ) -> np.ndarray:
+        """
+        Encode input samples one-by-one using a single, reusable QNode template.
+        Returns numpy array of circuit outputs.
+        """
+        batch = np.asarray(batch)
+        
+        if batch.ndim < 2:
+          
+            batch = np.array([batch])
+
+        
+        single_qnode = self.build_full_circuit(
+            initial_sample=batch[0], 
+            embedding_type=embedding_type,
+            gate_type=gate_type,
+            operation_list=operation_list,
+            device=device,
+            return_state=return_state,
+            observable=observable
+        )
+
+        outputs = []
+        for x in batch:
+           
+            outputs.append(single_qnode(x)) 
+
+        return np.array(outputs)
+
+
 
 if __name__ == "__main__":
-    input_data = np.asarray([0,0,1])
-    encoder = InputEncoder(input_data)
-    dev = qml.device("default.qubit", wires=3)
-    ops=[
+    
+    
+    input_data = np.array([
+        [0.3, 0.5, 0.8], 
+        [0.2, 0.7, 0.9], 
+        [0.3, 0.4, 0.5]  
+    ])
+
+    encoder = InputEncoder()
+
+    #
+    ops = [
         qml.Hadamard(wires=0),
-        qml.CNOT(wires=[0,1]),
-        qml.CNOT(wires=[1,2])
+        qml.CNOT(wires=[0, 1]),
+        qml.RX(0.1, wires=2)
     ]
 
-    #1 embedding only(standalone QNode)
-    embedding_fn=encoder.embedding_function("angle","Y")
-
-    @qml.qnode(dev)
-    def embedding_only():
-        embedding_fn()
-        return qml.state()
-    print("Embedding only:", embedding_only())
-
-    #2 operation only(standalone QNode)
-    ops_fn=encoder.operations_function(ops)
-
-    @qml.qnode(dev)
-    def ops_only():
-        ops_fn()
-        return qml.state()
-    print("Operation only:", ops_only())
-
-    #3 full circuit(embedding + ops via build_full_circuit)
-    full_circuit = encoder.build_full_circuit(
-        embedding_type= "angle",
-        gate_type= "Y",
-        operation_list= ops,
-        device= dev,
-        return_state= False
+    print("--- Angle Embedding (default: Z0 expectation) ---")
+    batch_expvals = encoder.encode_batch(
+        input_data, 
+        embedding_type="angle",
+        operation_list=ops,
+        return_state=False
     )
-    print("Full circuit <Z0>:", full_circuit())
+    print(f"Output shape (3 expvals): {batch_expvals.shape}")
+    print(f"Batch Z0 expvals:\n{batch_expvals}\n")
 
-    #4 custom composition(embedding from encoder + new operation defined here)
-    @qml.qnode(dev)
-    def custom_circuit():
-        embedding_fn()
-        qml.RX(np.pi/4, wires=0)
-
-        return qml.expval(qml.PauliZ(0))
-    print("Custom composition <Z0>:", custom_circuit())
-
-
+   
+    print("--- Amplitude Embedding (return state) ---")
+    batch_states = encoder.encode_batch(
+        input_data, 
+        embedding_type="amplitude", 
+        operation_list=ops, 
+        return_state=True
+    )
+    print(f"Output shape: {batch_states.shape}")
+    print(f"State of first sample:\n{batch_states[0]}")
