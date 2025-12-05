@@ -52,6 +52,58 @@ class VQCLayer(nn.Module):
         if n <= 0: return 1
         if (n & (n - 1)) == 0: return n
         return 1 << (n.bit_length())
+    
+    def _ensure_qnode_and_weights(self, n_qubits: int, embedding_type: str, gate_type: str):
+        key = (n_qubits, embedding_type, gate_type)
+
+        if n_qubits not in self.weights_dict:
+            shape = tuple(self.weight_shape_fn(n_qubits)) if self.weight_shape_fn else self._default_weight_shape(n_qubits)
+            param = nn.Parameter(torch.randn(*shape) * np.pi)
+            self.register_parameter(f"weights_{n_qubits}", param)
+            self.weights_dict[n_qubits] = param
+
+        if key not in self.qnode_cache:
+            dev = qml.device(self.device_type, wires=n_qubits)
+            wires = list(range(n_qubits))
+
+            embedding_type_local = embedding_type
+            gate_type_local = gate_type
+            ansatz_local = self.ansatz_fn
+            measurement_fn_local = self.measurement_fn
+
+           
+            @qml.qnode(dev, interface="torch", diff_method="parameter-shift")
+            def circuit(weights, x_data):
+                """
+                weights: torch tensor shaped per ansatz
+                x_data: 1D torch tensor containing the classical input sample (potentially padded)
+                """
+                
+    
+                if embedding_type_local == "angle":
+                    
+                    qml.AngleEmbedding(x_data, wires=wires, rotation=gate_type_local)
+
+                elif embedding_type_local == "amplitude":
+                   
+                    qml.AmplitudeEmbedding(x_data, wires=wires, normalize=True, pad_with=0.0)
+
+                else:
+                    raise ValueError(f"Unsupported embedding_type: {embedding_type_local}")
+
+            
+                if ansatz_local is None:
+                    qml.BasicEntanglerLayers(weights, wires=wires)
+                else:
+                    ansatz_local(weights, wires)
+
+
+                measurements = measurement_fn_local(n_qubits)
+                return measurements
+
+            self.qnode_cache[key] = {"device": dev, "qnode": circuit, "wires": wires}
+
+        return self.qnode_cache[key], self.weights_dict[n_qubits]
 
 
 
