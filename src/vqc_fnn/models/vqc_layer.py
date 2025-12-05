@@ -107,29 +107,68 @@ class VQCLayer(nn.Module):
 
 
 
-    def _circuit(self, weights, inputs=None):
-        """Quantum circuit for the VQC layer."""
-        # Encode classical input if encoder provided
-        if self.encoder is not None and inputs is not None:
-            self.encoder.classic_input = inputs.detach().cpu().numpy()
-            embedding_fn = self.encoder.embedding_function(embedding_type="angle", gate_type="Y")
-            embedding_fn()
+    def forward(self, x: torch.Tensor, embedding_type: str = "angle", gate_type: str = "Y") -> torch.Tensor:
+        """
+        x: tensor (batch_size, n_features) or (n_features,)
+        Returns: tensor (batch_size, n_measurements)
+        """
+        
+        
+        x = x.to(dtype=torch.get_default_dtype())
+        single = False
+        if x.ndim == 1:
+            x = x.unsqueeze(0)
+            single = True
 
-        # Variational ansatz
-        self.ansatz_fn(weights)
+        batch_out = []
+        batch_size = x.shape[0]
 
-        # Measurement
-        return self.measurement_fn()
+        for i in range(batch_size):
+            sample = x[i]  
+            length = sample.numel()
 
-    def forward(self, input_):
-        """Forward pass with batch support."""
-        input_ = input_.float() if isinstance(input_, torch.Tensor) else input_
+           
+            if embedding_type == "amplitude":
+                next_pow2 = self._next_power_of_two_int(length)
+                
+            
+                num_wires = int(np.log2(next_pow2)) if next_pow2 > 1 else 1
+                
+              
+                if next_pow2 != length:
+                    pad = torch.zeros(next_pow2 - length, dtype=sample.dtype, device=sample.device)
+                    sample_arg = torch.cat([sample, pad], dim=0)
+                else:
+                    sample_arg = sample
+                
+                n_qubits = num_wires
+            else:
+               
+                n_qubits = int(length)
+                sample_arg = sample
 
-        if len(input_.shape) == 1:  # single input
-            return self.qnode(self.weights, inputs=input_)
-        else:  # batch
-            batch_out = [self.qnode(self.weights, inputs=x_i) for x_i in input_]
-            return torch.stack(batch_out)
+          
+            qnode_meta, weights_param = self._ensure_qnode_and_weights(n_qubits, embedding_type, gate_type)
+            qnode = qnode_meta["qnode"]
+
+            
+            out = qnode(weights_param, sample_arg) 
+
+            
+            if torch.is_tensor(out):
+                out_t = out.view(-1)
+            elif isinstance(out, (list, tuple)):
+                out_t = torch.stack([torch.as_tensor(o, dtype=sample.dtype, device=sample.device) for o in out]).view(-1)
+            else:
+                out_t = torch.as_tensor(np.array(out), dtype=sample.dtype, device=sample.device).view(-1)
+
+            batch_out.append(out_t)
+
+        batch_out = torch.stack(batch_out, dim=0)
+        if single:
+            return batch_out.squeeze(0)
+        return batch_out
+
         
     def backward(self, grad_output):
         """
@@ -139,21 +178,28 @@ class VQCLayer(nn.Module):
         pass
 
 
-if __name__ == '__main__':
-    x = torch.tensor([0.1, 0.5, 0.9])
-    encoder = InputEncoder(classic_input=x.numpy())
+if __name__ == "__main__":
+    
+   
+    X = torch.tensor([
+        [0.3, 0.5, 0.8, 0.7, 0.9],
+        [0.2, 0.7, 0.9, 0.4, 0.6],
+        [0.3, 0.4, 0.5, 0.2, 0.3],
+    ], dtype=torch.float32)
 
-    # Default VQC
-    vqc = VQCLayer(num_qubits=3, n_layers=2, encoder=encoder)
-    print("Default VQC output:", vqc(x))
+   
+    vqc = VQCLayer(n_layers=2)
 
-    # Custom ansatz
-    ansatz = lambda weights: qml.StronglyEntanglingLayers(weights, wires=range(3))
-    ansatz.weight_shape = qml.StronglyEntanglingLayers.shape(n_layers=2, n_wires=3)
-    vqc_custom = VQCLayer(num_qubits=3, encoder=encoder, ansatz_fn=ansatz)
-    print("Custom ansatz output:", vqc_custom(x))
+    
+    print("--- Angle Embedding Test ---")
+    Y_angle = vqc(X, embedding_type="angle")
+    
+    print(f"Output shape: {Y_angle.shape}") 
+    print(f"First output sample:\n{Y_angle[0].detach().numpy()}") 
 
-    # Custom measurement
-    measure_qubit0 = lambda: qml.expval(qml.PauliZ(0))
-    vqc_measure = VQCLayer(num_qubits=3, encoder=encoder, measurement_fn=measure_qubit0)
-    print("Custom measurement output:", vqc_measure(x))
+   
+    print("\n--- Amplitude Embedding Test ---")
+    Y_amp = vqc(X, embedding_type="amplitude")
+   
+    print(f"Output shape: {Y_amp.shape}")
+    print(f"First output sample:\n{Y_amp[0].detach().numpy()}")
