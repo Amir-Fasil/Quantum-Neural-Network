@@ -2,54 +2,46 @@ import torch
 from torch import nn
 import pennylane as qml
 import numpy as np
-from input_encoder import InputEncoder
-from qiskit import QuantumCircuit
+from typing import Optional, Callable, Dict, Tuple, Any, Union, List
+
+
+from input_encoder import InputEncoder 
 
 class VQCLayer(nn.Module):
+    """
+    Variational Quantum Circuit (VQC) PyTorch layer that integrates the InputEncoder.
+    
+    This layer is designed for efficiency:
+    - It caches QNodes and PyTorch weights based on the required number of qubits (n_qubits).
+    - It uses pure PyTorch tensors for the forward pass, maintaining autograd compatibility.
+    """
+
     def __init__(
-        self, 
-        num_qubits: int,
-        encoder: InputEncoder | None = None,
-        ansatz_fn=None,
-        n_layers: int = 1, 
+        self,
+        encoder: Optional[InputEncoder] = None,
+        n_layers: int = 1,
+        ansatz_fn: Optional[Callable[[Union[torch.Tensor, np.ndarray], List[int]], None]] = None,
+        weight_shape_fn: Optional[Callable[[int], Tuple[int, ...]]] = None,
+        measurement_fn: Optional[Callable[[int], list]] = None,
         device_type: str = "default.qubit",
-        measurement_fn=None,
-        q_circuit: QuantumCircuit | None = None, 
     ):
-        """
-        Variational Quantum Circuit (VQC) Layer.
-        """
         super().__init__()
-        self.num_qubits = num_qubits
-        self.encoder = encoder
+       
+        self.encoder = encoder or InputEncoder(device_type=device_type)
         self.n_layers = n_layers
-        self.q_circuit = q_circuit
+        self.device_type = device_type
+        self.ansatz_fn = ansatz_fn
+        self.weight_shape_fn = weight_shape_fn
 
-        # Initialize Pennylane device
-        self.dev = qml.device(device_type, wires=self.num_qubits)
-
-        # Default ansatz if not provided
-        if ansatz_fn is None:
-            self.ansatz_fn = lambda weights: qml.BasicEntanglerLayers(weights, wires=range(num_qubits))
-            self.weight_shape = qml.BasicEntanglerLayers.shape(n_layers=n_layers, n_wires=num_qubits)
-        else:
-            self.ansatz_fn = ansatz_fn
-            self.weight_shape = getattr(ansatz_fn, "weight_shape", (n_layers, num_qubits))
-
-        # Trainable weights
-        self.weights = nn.Parameter(torch.randn(*self.weight_shape) * np.pi)
-
-        # Default measurement: Z expectation on all qubits
+        
         if measurement_fn is None:
-            self.measurement_fn = lambda: [qml.expval(qml.PauliZ(i)) for i in range(num_qubits)]
+            self.measurement_fn = lambda n_qubits: [qml.expval(qml.PauliZ(i)) for i in range(n_qubits)]
         else:
             self.measurement_fn = measurement_fn
 
-        # Define QNode (custom circuit if provided)
-        if self.q_circuit is not None:
-            self.qnode = qml.QNode(self.q_circuit, self.dev, interface="torch")
-        else:
-            self.qnode = qml.QNode(self._circuit, self.dev, interface="torch", diff_method="parameter-shift")
+        self.qnode_cache: Dict[Tuple[int, str, str], Dict[str, Any]] = {}
+        self.weights_dict: Dict[int, nn.Parameter] = {}
+
 
     def _circuit(self, weights, inputs=None):
         """Quantum circuit for the VQC layer."""
