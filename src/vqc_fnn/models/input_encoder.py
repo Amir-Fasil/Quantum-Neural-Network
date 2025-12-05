@@ -80,7 +80,7 @@ class InputEncoder:
         
         return func
     
-    
+
     @staticmethod
     def operations_function(operation_list: Optional[List[Union[qml.operation.Operation, Callable]]] = None) -> Callable[[], None]:
         """Returns a function that applies a list of pre-defined operations."""
@@ -94,29 +94,49 @@ class InputEncoder:
         return func
 
     def build_full_circuit(
-            self,
-            embedding_type:str = "angle",
-            gate_type:str = "Y",
-            operation_list=None,
-            device:qml.device=None,
-            return_state: bool=True,
-            interface: str="autograd" 
+        self,
 
-    ):
+        initial_sample: ArrayLike, 
+        embedding_type: str = "angle",
+        gate_type: str = "Y",
+        operation_list: Optional[List[Union[qml.operation.Operation, Callable]]] = None,
+        device: Optional[qml.device] = None,
+        return_state: bool = True,
+        interface: str = "autograd",
+        observable: Optional[qml.operation.Observable] = None
+    ) -> Callable[[ArrayLike], ArrayLike]: 
         """
-        Build a complete QNode that includes embedding + operation + measurement
+        Builds and returns a single QNode template that accepts data as an argument.
+        This is defined ONCE.
         """
-        self.device=device if device is not None else qml.device(self.device_type, wires = self.n_qubits)
-        embedding= self.embedding_function(embedding_type,gate_type)
-        ops=self.operations_function(operation_list)
+        
+        initial_sample = np.asarray(initial_sample).flatten()
+        if embedding_type == "angle":
+            n_qubits = len(initial_sample)
+        elif embedding_type == "amplitude":
+            _, n_qubits = self.add_padding(initial_sample)
+        else:
+            raise ValueError(f"Unknown embedding_type: {embedding_type}")
 
-        @qml.qnode(self.device, interface = interface, diff_method = "parameter-shift")
-        def circuit():
-            embedding()
-            ops()
-            return qml.state() if return_state else qml.expval(qml.PauliZ(0))
+     
+        embedding_fn = self.embedding_template(embedding_type, gate_type)
+        ops_fn = self.operations_function(operation_list)
+
+        dev = device if device is not None else qml.device(self.device_type, wires=n_qubits)
+
+        if observable is None:
+           
+            observable = qml.PauliZ(0) 
+
+        
+        @qml.qnode(dev, interface=interface, diff_method="parameter-shift")
+        def circuit(classic_input): 
+            embedding_fn(classic_input) 
+            ops_fn()
+            
+            return qml.state() if return_state else qml.expval(observable)
+
         return circuit
-    
 # Example usage
 
 if __name__ == "__main__":
