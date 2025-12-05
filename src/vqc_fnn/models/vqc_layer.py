@@ -42,6 +42,18 @@ class VQCLayer(nn.Module):
         self.qnode_cache: Dict[Tuple[int, str, str], Dict[str, Any]] = {}
         self.weights_dict: Dict[int, nn.Parameter] = {}
 
+    def _default_weight_shape(self, n_qubits: int) -> Tuple[int, ...]:
+        """Provides default shape for BasicEntanglerLayers."""
+        return qml.BasicEntanglerLayers.shape(n_layers=self.n_layers, n_wires=n_qubits)
+
+    @staticmethod
+    def _next_power_of_two_int(n: int) -> int:
+        """Utility: compute next power of two (pure python)."""
+        if n <= 0: return 1
+        if (n & (n - 1)) == 0: return n
+        return 1 << (n.bit_length())
+
+
 
     def _circuit(self, weights, inputs=None):
         """Quantum circuit for the VQC layer."""
