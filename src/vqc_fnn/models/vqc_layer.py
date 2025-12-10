@@ -5,7 +5,7 @@ import numpy as np
 from typing import Optional, Callable, Dict, Tuple, Any, Union, List
 
 
-from input_encoder import InputEncoder 
+from .input_encoder import InputEncoder 
 
 class VQCLayer(nn.Module):
     """
@@ -176,7 +176,6 @@ class VQCLayer(nn.Module):
         For standard PyTorch + Pennylane, autograd handles gradients automatically.
         """
         pass
-
 
 if __name__ == "__main__":
     

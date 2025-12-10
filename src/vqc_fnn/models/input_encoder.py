@@ -31,16 +31,7 @@ class InputEncoder:
         padded_vector = np.pad(vector, (0, next_pow2 - length), 'constant')
         return padded_vector, next_pow2
 
-    def prepare_state(self, embedding_type: str):
-        """
-        Apply Hadamard gates to all qubits for superposition
-        Only used for angle embedding.
-        """
-        if embedding_type == "angle":
-            for i in range(self.n_qubits):
-                qml.Hadamard(wires=i)
-
-
+ 
     def embedding_template(
         self,
         embedding_type: str = "angle",
@@ -175,7 +166,6 @@ class InputEncoder:
             outputs.append(single_qnode(x)) 
 
         return np.array(outputs)
-
 
 
 if __name__ == "__main__":
