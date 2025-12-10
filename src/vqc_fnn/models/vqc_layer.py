@@ -177,28 +177,5 @@ class VQCLayer(nn.Module):
         """
         pass
 
-if __name__ == "__main__":
-    
-   
-    X = torch.tensor([
-        [0.3, 0.5, 0.8, 0.7, 0.9],
-        [0.2, 0.7, 0.9, 0.4, 0.6],
-        [0.3, 0.4, 0.5, 0.2, 0.3],
-    ], dtype=torch.float32)
-
-   
-    vqc = VQCLayer(n_layers=2)
 
     
-    print("--- Angle Embedding Test ---")
-    Y_angle = vqc(X, embedding_type="angle")
-    
-    print(f"Output shape: {Y_angle.shape}") 
-    print(f"First output sample:\n{Y_angle[0].detach().numpy()}") 
-
-   
-    print("\n--- Amplitude Embedding Test ---")
-    Y_amp = vqc(X, embedding_type="amplitude")
-   
-    print(f"Output shape: {Y_amp.shape}")
-    print(f"First output sample:\n{Y_amp[0].detach().numpy()}")
