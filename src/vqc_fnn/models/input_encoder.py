@@ -1,154 +1,170 @@
 import pennylane as qml
 import numpy as np
 import matplotlib.pyplot as plt
+from typing import Callable, List, Optional, Union, Tuple
 
-
+ArrayLike = Union[np.ndarray, List[float]]
 class InputEncoder:
-    def __init__(self, classic_input: np.ndarray, device_type: str = 'default.qubit'):
-        """
-        Initialize encoder with classical input.
-        Args:
-            classic_input: Input array
-            device_type: PennyLane device type
-        """
-        self.classic_input = np.asarray(classic_input, dtype=np.float64)
-        self.n_qubits = len(self.classic_input)
+    """
+    Stateless, modular quantum input encoder for feedforward VQC networks.
+
+    Supports:
+    - AngleEmbedding (rotation gates)
+    - AmplitudeEmbedding (normalized, padded)
+    
+    IMPORTANT:
+    - QNode is defined once and accepts data as an argument for efficient batching.
+    """
+    def __init__(self, device_type: str = "default.qubit"):
+
         self.device_type = device_type
-        self.device = None
         self.random_generator = np.random.default_rng()
 
-    def add_padding(self):
-        """
-        Pad input to the next power of 2 and update n_qubits if needed
-        """
-        length = len(self.classic_input)
-        next_power_of_2 = 2 ** np.ceil(np.log2(max(length, 1))).astype(int)
-        if next_power_of_2 > self.n_qubits:
-            self.n_qubits = next_power_of_2
 
-        self.classic_input = np.pad(
-            self.classic_input,
-            (0, self.n_qubits - length),
-            'constant'
-        )
+    @staticmethod
+    def add_padding(vector: np.ndarray) -> Tuple[np.ndarray, int]:
+        """Pads a vector to the next power of 2 for amplitude embedding."""
+        vector = np.asarray(vector, dtype=np.float64).flatten()
+        length = len(vector)
+  
+        next_pow2 = 2 ** int(np.ceil(np.log2(max(length, 1))))
+        padded_vector = np.pad(vector, (0, next_pow2 - length), 'constant')
+        return padded_vector, next_pow2
 
-    def prepare_state(self, embedding_type: str):
+ 
+    def embedding_template(
+        self,
+        embedding_type: str = "angle",
+        gate_type: str = "Y"
+    ) -> Callable[[ArrayLike], None]:
         """
-        Apply Hadamard gates to all qubits for superposition
-        Only used for angle embedding.
+        Returns a function that takes 'classic_input' and performs the embedding.
+        This function defines the quantum operations within the QNode.
         """
-        if embedding_type == "angle":
-            for i in range(self.n_qubits):
-                qml.Hadamard(wires=i)
 
-
-    #Circuit Modules
-    def embedding_function(self,embedding_type:str = "angle",gate_type:str = "Y"):
-        """
-        Returns a function that applies only the embedding.
-        Can be inserted into another QNode
-        """
-        def func():
+        def func(classic_input: ArrayLike):
+            classic_input_arr = np.asarray(classic_input, dtype=np.float64).flatten()
+            
+           
             if embedding_type == "angle":
-                self.prepare_state(embedding_type)
+                n_qubits = len(classic_input_arr)
+
                 qml.AngleEmbedding(
-                    self.classic_input, 
-                    wires=range(self.n_qubits), 
-                    rotation=gate_type)
+                    classic_input_arr,
+                    wires=range(n_qubits),
+                    rotation=gate_type
+                )
+            
+            
             elif embedding_type == "amplitude":
-                self.add_padding()
+                
+                padded_input, n_qubits = InputEncoder.add_padding(classic_input_arr)
+
                 qml.AmplitudeEmbedding(
-                    self.classic_input,
-                    wires=range(self.n_qubits),
+                    padded_input,
+                    wires=range(n_qubits),
                     normalize=True,
                     pad_with=0.0
                 )
             else:
-                raise ValueError("embedding_type must be 'angle' or 'amplitude' ")
-
+                raise ValueError(f"Unknown embedding_type: {embedding_type}")
+        
         return func
-    def operations_function(self, operation_list=None):
-        """
-        Returns a function that applies only the given operations.
-        Can be inserted into another QNode
-        """
+    
+
+    @staticmethod
+    def operations_function(operation_list: Optional[List[Union[qml.operation.Operation, Callable]]] = None) -> Callable[[], None]:
+        """Returns a function that applies a list of pre-defined operations."""
         def func():
             if operation_list:
                 for op in operation_list:
-                    qml.apply(op)
-
+                    if callable(op):
+                        op()
+                    else:
+                        qml.apply(op)
         return func
+
     def build_full_circuit(
-            self,
-            embedding_type:str = "angle",
-            gate_type:str = "Y",
-            operation_list=None,
-            device:qml.device=None,
-            return_state: bool=True,
-            interface: str="autograd" 
+        self,
 
-    ):
+        initial_sample: ArrayLike, 
+        embedding_type: str = "angle",
+        gate_type: str = "Y",
+        operation_list: Optional[List[Union[qml.operation.Operation, Callable]]] = None,
+        device: Optional[qml.device] = None,
+        return_state: bool = True,
+        interface: str = "autograd",
+        observable: Optional[qml.operation.Observable] = None
+    ) -> Callable[[ArrayLike], ArrayLike]: 
         """
-        Build a complete QNode that includes embedding + operation + measurement
+        Builds and returns a single QNode template that accepts data as an argument.
+        This is defined ONCE.
         """
-        self.device=device if device is not None else qml.device(self.device_type, wires = self.n_qubits)
-        embedding= self.embedding_function(embedding_type,gate_type)
-        ops=self.operations_function(operation_list)
+        
+        initial_sample = np.asarray(initial_sample).flatten()
+        if embedding_type == "angle":
+            n_qubits = len(initial_sample)
+        elif embedding_type == "amplitude":
+            _, n_qubits = self.add_padding(initial_sample)
+        else:
+            raise ValueError(f"Unknown embedding_type: {embedding_type}")
 
-        @qml.qnode(self.device, interface = interface, diff_method = "parameter-shift")
-        def circuit():
-            embedding()
-            ops()
-            return qml.state() if return_state else qml.expval(qml.PauliZ(0))
+     
+        embedding_fn = self.embedding_template(embedding_type, gate_type)
+        ops_fn = self.operations_function(operation_list)
+
+        dev = device if device is not None else qml.device(self.device_type, wires=n_qubits)
+
+        if observable is None:
+           
+            observable = qml.PauliZ(0) 
+
+        
+        @qml.qnode(dev, interface=interface, diff_method="parameter-shift")
+        def circuit(classic_input): 
+            embedding_fn(classic_input) 
+            ops_fn()
+            
+            return qml.state() if return_state else qml.expval(observable)
+
         return circuit
     
-# Example usage
+    def encode_batch(
+        self,
+        batch: ArrayLike,
+        embedding_type: str = "angle",
+        gate_type: str = "Y",
+        operation_list: Optional[List[Union[qml.operation.Operation, Callable]]] = None,
+        device: Optional[qml.device] = None,
+        return_state: bool = True,
+        observable: Optional[qml.operation.Observable] = None
+    ) -> np.ndarray:
+        """
+        Encode input samples one-by-one using a single, reusable QNode template.
+        Returns numpy array of circuit outputs.
+        """
+        batch = np.asarray(batch)
+        
+        if batch.ndim < 2:
+          
+            batch = np.array([batch])
 
-if __name__ == "__main__":
-    input_data = np.asarray([0,0,1])
-    encoder = InputEncoder(input_data)
-    dev = qml.device("default.qubit", wires=3)
-    ops=[
-        qml.Hadamard(wires=0),
-        qml.CNOT(wires=[0,1]),
-        qml.CNOT(wires=[1,2])
-    ]
+        
+        single_qnode = self.build_full_circuit(
+            initial_sample=batch[0], 
+            embedding_type=embedding_type,
+            gate_type=gate_type,
+            operation_list=operation_list,
+            device=device,
+            return_state=return_state,
+            observable=observable
+        )
 
-    #1 embedding only(standalone QNode)
-    embedding_fn=encoder.embedding_function("angle","Y")
+        outputs = []
+        for x in batch:
+           
+            outputs.append(single_qnode(x)) 
 
-    @qml.qnode(dev)
-    def embedding_only():
-        embedding_fn()
-        return qml.state()
-    print("Embedding only:", embedding_only())
-
-    #2 operation only(standalone QNode)
-    ops_fn=encoder.operations_function(ops)
-
-    @qml.qnode(dev)
-    def ops_only():
-        ops_fn()
-        return qml.state()
-    print("Operation only:", ops_only())
-
-    #3 full circuit(embedding + ops via build_full_circuit)
-    full_circuit = encoder.build_full_circuit(
-        embedding_type= "angle",
-        gate_type= "Y",
-        operation_list= ops,
-        device= dev,
-        return_state= False
-    )
-    print("Full circuit <Z0>:", full_circuit())
-
-    #4 custom composition(embedding from encoder + new operation defined here)
-    @qml.qnode(dev)
-    def custom_circuit():
-        embedding_fn()
-        qml.RX(np.pi/4, wires=0)
-
-        return qml.expval(qml.PauliZ(0))
-    print("Custom composition <Z0>:", custom_circuit())
+        return np.array(outputs)
 
 
