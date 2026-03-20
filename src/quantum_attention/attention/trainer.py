@@ -7,8 +7,8 @@ from tqdm import tqdm
 from typing import Tuple
 
 import torch
-from model import QSANN
-from dataset import TextDataset, deal_vocab, build_iter
+from quantum_attention.attention.model import QSANN
+from quantum_attention.attention.dataset import TextDataset, deal_vocab, build_iter
 
 def evaluate(model: torch.nn.Module, data_loader: list) -> Tuple[float, float]:
     r"""Evaluate the model.

@@ -7,8 +7,8 @@ Inference script for the QSANN model.
 from typing import List
 import torch
 
-from model import QSANN
-from dataset import deal_vocab
+from quantum_attention.attention.model import QSANN
+from quantum_attention.attention.dataset import deal_vocab
 
 def inference(
         text: str, model_path: str, vocab_path: str, classes: List[str],
