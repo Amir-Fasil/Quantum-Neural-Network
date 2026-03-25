@@ -3,12 +3,14 @@ Training and evaluation scripts for the QSANN model.
 """
 
 import logging
+import os
 from tqdm import tqdm
-from typing import Tuple
+from typing import Optional, Tuple
 
 import torch
 from quantum_attention.attention.model import QSANN
 from quantum_attention.attention.dataset import TextDataset, deal_vocab, build_iter
+from quantum_attention.utils.logger import initialize_metrics_logger, log_metrics
 
 def evaluate(model: torch.nn.Module, data_loader: list) -> Tuple[float, float]:
     r"""Evaluate the model.
@@ -60,6 +62,7 @@ def train(
         batch_size: int, num_epochs: int, learning_rate: float = 0.01,
         saved_dir: str = '', using_validation: bool = False,
         early_stopping: int = 1000,
+        metrics_log_path: Optional[str] = None,
 ) -> None:
     r"""
     The function of training the QSANN model.
@@ -81,6 +84,8 @@ def train(
             Defaults to ``False`` , which means the validation dataset is not included.
         early_stopping: Number of iterations with no improvement after which training will be stopped.
             Defaults to ``1000`` .
+        metrics_log_path: Optional CSV file used to store structured metrics such as
+            training loss, accuracy, and evaluation metrics. Defaults to ``None`` .
     """
     if not saved_dir:
         saved_dir = './'
@@ -88,12 +93,14 @@ def train(
         saved_dir += '/'
     if dataset[-1] != '/':
         dataset += '/'
+    os.makedirs(saved_dir, exist_ok=True)
     logging.basicConfig(
         filename=f'{saved_dir}{model_name}.log',
         filemode='w',
         format='%(asctime)s %(levelname)s %(message)s',
         level=logging.INFO,
     )
+    metrics_log_path = initialize_metrics_logger(metrics_log_path)
     word2idx = deal_vocab(f'{dataset}vocab.txt')
     len_vocab = len(word2idx)
     train_dataset = TextDataset(file_path=f'{dataset}train.txt', word2idx=word2idx)
@@ -127,22 +134,50 @@ def train(
             predictions = model(texts)
             labels_tensor = torch.tensor(labels, dtype=torch.float32)
             preds = torch.stack(predictions).squeeze()
+            if preds.dim() == 0:
+                preds = preds.unsqueeze(0)
             loss = torch.mean((preds - labels_tensor) ** 2)
             loss.backward()
             opt.step()
             if total_batch % 10 == 0:
-                predictions = [0 if item < 0.5 else 1 for item in predictions]
-                train_acc = sum(labels[idx] == predictions[idx] for idx in range(len(labels))) / len(labels)
+                train_predictions = (preds >= 0.5).int().tolist()
+                if isinstance(train_predictions, int):
+                    train_predictions = [train_predictions]
+                train_acc = sum(labels[idx] == train_predictions[idx] for idx in range(len(labels))) / len(labels)
+                log_metrics(
+                    metrics_log_path,
+                    epoch=epoch,
+                    iteration=total_batch,
+                    split='train',
+                    loss=loss.item(),
+                    accuracy=train_acc,
+                    learning_rate=learning_rate,
+                    num_samples=len(labels),
+                    extra_metrics={"model": "quantum_attention"},
+                )
                 if using_validation:
                     with torch.no_grad():
                         dev_loss, dev_acc = evaluate(model, dev_iter)
+                        is_best_model = dev_loss < dev_best_loss
                         if dev_loss < dev_best_loss:
-                            torch.save(model.state_dict(), f'{saved_dir}/{model_name}.pt')
+                            torch.save(model.state_dict(), f'{saved_dir}{model_name}.pt')
                             improve = '*'
                             last_improve = total_batch
                             dev_best_loss = dev_loss
                         else:
                             improve = ' '
+                        log_metrics(
+                            metrics_log_path,
+                            epoch=epoch,
+                            iteration=total_batch,
+                            split='validation',
+                            loss=dev_loss,
+                            accuracy=dev_acc,
+                            learning_rate=learning_rate,
+                            best_model=is_best_model,
+                            num_samples=len(dev_dataset),
+                            extra_metrics={"model": "quantum_attention"},
+                        )
                     msg = (
                         f"Iter:{total_batch: 5d}, Train loss:{loss.item(): 3.5f}, acc:{train_acc: 3.2%}; "
                         f"Val loss:{dev_loss: 3.5f}, acc:{dev_acc: 3.2%}{improve}"
@@ -151,6 +186,18 @@ def train(
                     with torch.no_grad():
                         test_loss, test_acc = evaluate(model, test_iter)
                         torch.save(model.state_dict(), f'{saved_dir}{model_name}.pt')
+                        log_metrics(
+                            metrics_log_path,
+                            epoch=epoch,
+                            iteration=total_batch,
+                            split='test',
+                            loss=test_loss,
+                            accuracy=test_acc,
+                            learning_rate=learning_rate,
+                            best_model=True,
+                            num_samples=len(test_dataset),
+                            extra_metrics={"model": "quantum_attention"},
+                        )
                     msg = (
                         f"Iter:{total_batch: 5d}, Train loss:{loss.item(): 3.5f}, acc:{train_acc: 3.2%}; "
                         f"Test loss:{test_loss: 3.5f}, acc:{test_acc: 3.2%}"
@@ -177,6 +224,18 @@ def train(
         torch.save(model.state_dict(), f'{saved_dir}/{model_name}.pt')
         with torch.no_grad():
             test_loss, test_acc = evaluate(model, test_iter)
+        log_metrics(
+            metrics_log_path,
+            epoch=num_epochs - 1,
+            iteration=total_batch,
+            split='final_test',
+            loss=test_loss,
+            accuracy=test_acc,
+            learning_rate=learning_rate,
+            best_model=True,
+            num_samples=len(test_dataset),
+            extra_metrics={"model": "quantum_attention"},
+        )
         msg = f"Test loss: {test_loss:3.5f}, acc: {test_acc:3.2%}"
         logging.info(msg)
         print(msg)

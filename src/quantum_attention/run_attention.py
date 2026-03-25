@@ -1,4 +1,4 @@
-import argparse
+from typing import Optional
 from quantum_attention.attention.trainer import train
 from quantum_attention.attention.inference import inference
 
@@ -7,7 +7,8 @@ def run_q_attention(
         num_qubits: int, num_layers: int, depth_ebd: int,
         depth_query: int, depth_key: int, depth_value: int,
         batch_size: int, num_epochs: int, learning_rate: float,
-        using_validation: bool, text: str   
+        using_validation: bool, text: str,
+        metrics_log_path: Optional[str] = None,
 ):
     if mode == 'train':
         print(f"Starting training on dataset from: {dataset}")
@@ -24,7 +25,8 @@ def run_q_attention(
             num_epochs=num_epochs,
             learning_rate=learning_rate,
             saved_dir=saved_dir,
-            using_validation=using_validation
+            using_validation=using_validation,
+            metrics_log_path=metrics_log_path,
         )
     elif mode == 'inference':
         # Example inference classes (update based on your dataset)
