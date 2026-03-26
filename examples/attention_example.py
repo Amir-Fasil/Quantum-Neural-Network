@@ -7,7 +7,7 @@ src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../src'))
 if src_path not in sys.path:
     sys.path.insert(0, src_path)
 
-from quantum_attention.run_attention import run_q_attention
+from qasnn.run_attention import run_q_attention
 from born_machine.Ansatz import AnsatzLayer
 
 if __name__ == '__main__':

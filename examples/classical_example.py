@@ -11,8 +11,8 @@ src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../src"))
 if src_path not in sys.path:
     sys.path.insert(0, src_path)
 
-from quantum_attention.attention.dataset import TextDataset, build_iter, deal_vocab
-from quantum_attention.utils.logger import initialize_metrics_logger, log_metrics
+from qasnn.attention.dataset import TextDataset, build_iter, deal_vocab
+from qasnn.utils.logger import initialize_metrics_logger, log_metrics
 
 MODEL_TAG = "classical_attention"
 

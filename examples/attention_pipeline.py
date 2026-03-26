@@ -9,7 +9,7 @@ if src_path not in sys.path:
 
 from classical_example import inference as run_classical_inference
 from classical_example import train as run_classical_train
-from quantum_attention.run_attention import run_q_attention
+from qasnn.run_attention import run_q_attention
 
 
 def run_pipeline(args: argparse.Namespace) -> None:
