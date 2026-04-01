@@ -1,12 +1,6 @@
-"""
-KL divergence optimiser for the Born Machine.
-
-No X, no Y, no MSE. The cost is the divergence between the circuit's
-probability vector and the target distribution.
-"""
-
 import numpy as np
 import pennylane as qml
+from pennylane import numpy as pnp
 
 
 class BornMachineTrainer:
@@ -61,11 +55,10 @@ class BornMachineTrainer:
         """
         p_circuit = self.model.forward(params)
         eps = 1e-10
-        p_circuit_safe = np.clip(p_circuit, eps, None)
 
-        kl = np.sum(
-            self.target[self._mask]
-            * (self._log_target[self._mask] - np.log(p_circuit_safe[self._mask]))
+        p_circuit_safe = pnp.maximum(p_circuit, eps)
+        kl = pnp.sum( 
+            self.target[self._mask] * (self._log_target[self._mask] - pnp.log(p_circuit_safe[self._mask]))
         )
         return kl
 

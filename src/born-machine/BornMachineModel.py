@@ -1,10 +1,4 @@
-"""
-Central quantum model for the Born Machine.
-
-No embedding class -- there are no input features.
-The circuit is purely parameterised: |0...0> -> Ansatz(theta) -> qml.probs(wires).
-"""
-
+from pennylane import numpy as pnp
 import pennylane as qml
 import numpy as np
 from Ansatz import AnsatzLayer
@@ -70,7 +64,8 @@ class BornMachineModel:
     def init_params(self, seed=None):
         """Initialise random parameters for the circuit."""
         rng = np.random.default_rng(seed)
-        return rng.uniform(0, 2 * np.pi, size=self.weight_shape)
+        raw = rng.uniform(0,2 * np.pi, size = self.weight_shape)
+        return pnp.array(raw, dtype = pnp.float64, requires_grad = True)
 
     def param_count(self):
         """Total number of scalar trainable parameters."""
