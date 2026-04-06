@@ -1,5 +1,7 @@
 import pennylane as qml
 from pennylane import numpy as np
+import torch
+from utility.generalization_metrics import FisherGeneralizationMetric
 
 
 _OPTIMIZERS = {
@@ -79,17 +81,28 @@ class Trainer:
         Returns
         -------
         dict
-            ``weights``, ``train_history``, ``val_history``
+            ``weights``, ``train_history``, ``val_history``, ``fisher_history``
         """
         weight_shape = self.model.ansatz.get_weight_shape(self.model.n_qubits)
         weights = np.random.random(weight_shape, requires_grad=True)
+        
+        total_weights = np.prod(weight_shape) if weight_shape else 0
+        n_train_samples = len(X)
+        if verbose_every:
+            print(f"Total trainable weights: {total_weights}")
+            print(f"Train samples          : {n_train_samples}")
+            print("=" * 60)
 
         train_history = []
         val_history = []
+        fisher_history = [] 
         best_val_cost = float("inf")
         stale_epochs = 0
 
         self.model.train()
+        
+        metric = FisherGeneralizationMetric(delta=0.1)
+        grad_fn = qml.grad(self.cost_function, argnum=0)
 
         for epoch in range(epochs):
             if self.batch_size is not None and self.batch_size < len(X):
@@ -98,7 +111,30 @@ class Trainer:
             else:
                 X_batch, Y_batch = X, Y
 
-            weights, _, _ = self.opt.step(self.cost_function, weights, X_batch, Y_batch)
+            metric.reset()
+            avg_grad = np.zeros_like(weights)
+            
+            # Per-sample backprop
+            for i in range(len(X_batch)):
+                x_i = X_batch[i:i+1]
+                y_i = Y_batch[i:i+1]
+                
+                # Compute gradient for this sample
+                g_i = grad_fn(weights, x_i, y_i)
+                avg_grad += g_i
+                
+                # Accumulate Fisher Information
+                g_tensor = torch.tensor(np.array(g_i), dtype=torch.float64).view(-1)
+                metric.accumulate(g_tensor)
+                
+            avg_grad /= len(X_batch)
+            metrics_res = metric.compute()
+            fisher_history.append(metrics_res)
+
+            # Apply the average gradient to update weights
+            # Pennylane optimizers take a tuple of gradients matching tuple of trainable args
+            new_args = self.opt.apply_grad((avg_grad,), (weights,))
+            weights = new_args[0]
 
             train_cost = self.cost_function(weights, X, Y)
             train_history.append(float(train_cost))
@@ -125,8 +161,11 @@ class Trainer:
                             break
 
             if verbose_every and (epoch + 1) % verbose_every == 0:
-                msg = f"Epoch {epoch + 1:4d} | Train cost: {train_cost:.5f}"
-                if val_cost is not None:
+                eff_dim = metrics_res.get("effective_dimension", 0.0)
+                spec_entro = metrics_res.get("spectral_entropy_normalized", 0.0)
+                gen_bound = metrics_res.get("generalization_bound", 0.0)
+                msg = f"Epoch {epoch + 1:4d} | Train cost: {train_cost:.5f} | Eff dim: {eff_dim:.2f} | Gen bound: {gen_bound:.4f} | Spec entropy: {spec_entro:.4f}"
+                if val_cost is not None: 
                     msg += f" | Val cost: {val_cost:.5f}"
                 print(msg)
 
@@ -135,4 +174,6 @@ class Trainer:
             "weights": weights,
             "train_history": train_history,
             "val_history": val_history,
+            "fisher_history": fisher_history,
         }
+
